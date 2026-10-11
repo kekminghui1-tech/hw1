@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>星際防衛戰</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #050816; color: #e8faff; font-family: system-ui, sans-serif; }
+        main { width: min(100%, 540px); padding: 12px; }
+        header { display: flex; justify-content: space-between; align-items: center; padding: 4px 4px 10px; color: #9cf7ff; }
+        button { border: 1px solid #68efff; border-radius: 20px; padding: 8px 14px; background: #10283d; color: #c5faff; cursor: pointer; }
+        canvas { display: block; width: 100%; height: min(72vh, 680px); border: 1px solid #23546d; border-radius: 12px; background: #080e25; touch-action: none; }
+        .hint { margin: 9px 0; text-align: center; color: #8ba8ba; font-size: 13px; }
+        #overlay { position: fixed; inset: 0; display: grid; place-items: center; background: #030714c9; }
+        #panel { padding: 28px; text-align: center; border: 1px solid #4adcf5; border-radius: 16px; background: #0b1730; }
+        #panel h1 { margin: 0; color: #8af6ff; }
+        #panel p { color: #b7c9dd; }
+        [hidden] { display: none !important; }
+    </style>
+</head>
+<body>
+    <main>
+        <header><strong>✦ 星際防衛戰</strong><span>分數：<b id="score">0</b></span><button id="sound" type="button">🔊 音效開</button></header>
+        <canvas id="field" aria-label="太空射擊遊戲"></canvas>
+        <p class="hint">方向鍵／A、D 移動・空白鍵射擊・手機可拖曳戰機</p>
+    </main>
+    <div id="overlay"><section id="panel"><h1>星際防衛戰</h1><p>擊落隕石，守護星際基地！</p><button id="start" type="button">開始遊戲</button></section></div>
+    <script>
+        (() => {
+            const canvas = document.querySelector('#field'), ctx = canvas.getContext('2d');
+            const scoreEl = document.querySelector('#score'), overlay = document.querySelector('#overlay');
+            let w, h, ship, shots = [], rocks = [], stars = [], score = 0, playing = false, last = 0, spawn = 0;
+            let audio, muted = false;
+            const keys = {};
+            function resize() {
+                const rect = canvas.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+                canvas.width = rect.width * d; canvas.height = rect.height * d;
+                ctx.setTransform(d, 0, 0, d, 0, 0); w = rect.width; h = rect.height;
+                if (!ship) ship = { x: w / 2, y: h - 52, cooldown: 0 };
+                ship.y = h - 52; ship.x = Math.max(18, Math.min(w - 18, ship.x));
+                stars = Array.from({ length: 70 }, () => ({ x: Math.random() * w, y: Math.random() * h, size: .5 + Math.random() * 1.7 }));
+            }
+            function tone(freq, duration, type = 'sine', volume = .04) {
+                if (muted) return;
+                try {
+                    audio ||= new (window.AudioContext || window.webkitAudioContext)();
+                    const osc = audio.createOscillator(), gain = audio.createGain();
+                    osc.type = type; osc.frequency.value = freq; gain.gain.value = volume;
+                    gain.gain.exponentialRampToValueAtTime(.001, audio.currentTime + duration);
+                    osc.connect(gain).connect(audio.destination); osc.start(); osc.stop(audio.currentTime + duration);
+                } catch (_) {}
+            }
+            function startGame() {
+                score = 0; scoreEl.textContent = '0'; shots = []; rocks = [];
+                ship = { x: w / 2, y: h - 52, cooldown: 0 }; spawn = 0; last = performance.now();
+                playing = true; overlay.hidden = true; requestAnimationFrame(frame);
+            }
+            function gameOver() {
+                playing = false; tone(130, .4, 'sawtooth', .06);
+                document.querySelector('#panel').innerHTML = `<h1>任務結束</h1><p>最終分數：${score}</p><button id="start" type="button">再玩一次</button>`;
+                overlay.hidden = false;
+            }
+            function frame(now) {
+                if (!playing) return;
+                const dt = Math.min((now - last) / 16.67, 2); last = now;
+                ctx.clearRect(0, 0, w, h);
+                for (const s of stars) { s.y += s.size * dt; if (s.y > h) { s.y = 0; s.x = Math.random() * w; } ctx.globalAlpha = .3 + s.size / 3; ctx.fillStyle = '#b8eaff'; ctx.fillRect(s.x, s.y, s.size, s.size); }
+                ctx.globalAlpha = 1;
+                const dir = (keys.ArrowLeft || keys.a || keys.A ? -1 : 0) + (keys.ArrowRight || keys.d || keys.D ? 1 : 0);
+                ship.x = Math.max(18, Math.min(w - 18, ship.x + dir * 5 * dt));
+                if ((keys[' '] || keys.ArrowUp) && ship.cooldown <= 0) { shots.push({ x: ship.x, y: ship.y - 18 }); ship.cooldown = 13; tone(660, .07, 'square', .018); }
+                ship.cooldown -= dt;
+                ctx.fillStyle = '#ffb454'; ctx.beginPath(); ctx.moveTo(ship.x - 7, ship.y + 13); ctx.lineTo(ship.x, ship.y + 26 + Math.random() * 4); ctx.lineTo(ship.x + 7, ship.y + 13); ctx.fill();
+                ctx.fillStyle = '#70edff'; ctx.beginPath(); ctx.moveTo(ship.x, ship.y - 20); ctx.lineTo(ship.x - 17, ship.y + 16); ctx.lineTo(ship.x, ship.y + 9); ctx.lineTo(ship.x + 17, ship.y + 16); ctx.closePath(); ctx.fill();
+                for (const b of shots) { b.y -= 8 * dt; ctx.fillStyle = '#9affff'; ctx.shadowColor = '#39eaff'; ctx.shadowBlur = 10; ctx.fillRect(b.x - 2, b.y, 4, 13); ctx.shadowBlur = 0; }
+                shots = shots.filter(b => b.y > -15);
+                spawn -= dt;
+                if (spawn <= 0) { rocks.push({ x: 20 + Math.random() * (w - 40), y: -25, r: 13 + Math.random() * 12, speed: 1.3 + Math.random() * 1.2 + score / 500 }); spawn = Math.max(20, 48 - score / 30); }
+                for (const r of rocks) {
+                    r.y += r.speed * dt; ctx.fillStyle = '#a85e6c'; ctx.strokeStyle = '#ffb2a1'; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                    ctx.fillStyle = '#70414b'; ctx.beginPath(); ctx.arc(r.x - r.r / 3, r.y - r.r / 4, r.r / 4, 0, Math.PI * 2); ctx.fill();
+                    for (const b of shots) if (!b.hit && Math.hypot(b.x - r.x, b.y - r.y) < r.r + 4) { b.hit = true; r.hit = true; score += 10; scoreEl.textContent = score; tone(220, .1, 'triangle', .05); }
+                    if (Math.hypot(ship.x - r.x, ship.y - r.y) < r.r + 13 || r.y > h + r.r) { gameOver(); return; }
+                }
+                rocks = rocks.filter(r => !r.hit); shots = shots.filter(b => !b.hit);
+                requestAnimationFrame(frame);
+            }
+            overlay.addEventListener('click', e => { if (e.target.id === 'start') startGame(); });
+            document.querySelector('#sound').addEventListener('click', e => { muted = !muted; e.currentTarget.textContent = muted ? '🔇 音效關' : '🔊 音效開'; if (!muted) tone(520, .1); });
+            window.addEventListener('keydown', e => { if ([' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)) e.preventDefault(); keys[e.key] = true; });
+            window.addEventListener('keyup', e => { keys[e.key] = false; });
+            let dragging = false;
+            canvas.addEventListener('pointerdown', e => { dragging = true; canvas.setPointerCapture(e.pointerId); ship.x = e.offsetX; });
+            canvas.addEventListener('pointermove', e => { if (dragging) ship.x = Math.max(18, Math.min(w - 18, e.offsetX)); });
+            canvas.addEventListener('pointerup', () => { dragging = false; });
+            window.addEventListener('resize', resize); resize();
+        })();
+    </script>
+</body>
+</html>
